@@ -1,34 +1,43 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import tensorflow as tf
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+# Copyright (c) 2020 Yuhao Zhou (yuhaoz.cs@gmail.com), Jiaxin Shi (ishijiaxin@126.com)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-License-Identifier: MIT
 import math
 
-from kscore.kernels import CurlFreeIMQ
-from .base import Base
+import torch
 
-class NuMethod(Base):
-    def __init__(self,
-                 lam=None,
-                 iternum=None,
-                 kernel=CurlFreeIMQ(),
-                 nu=1.0,
-                 dtype=tf.float32):
+from kscore.kernels import CurlFreeIMQ
+
+from .base import BaseEstimator
+
+
+class NuMethod(BaseEstimator):
+    def __init__(self, lam=None, iternum=None, kernel=None, nu=1.0, dtype=torch.float32):
+        if kernel is None:
+            kernel = CurlFreeIMQ()
         if lam is not None and iternum is not None:
-            raise RuntimeError('Cannot specify `lam` and `iternum` simultaneously.')
+            raise ValueError("Cannot specify `lam` and `iternum` simultaneously.")
         if lam is None and iternum is None:
-            raise RuntimeError('Both `lam` and `iternum` are `None`.')
+            raise ValueError("Both `lam` and `iternum` are `None`.")
         if iternum is not None:
-            lam = 1.0 / tf.cast(iternum, dtype) ** 2
+            lam = 1.0 / iternum**2
         else:
-            iternum = tf.cast(1.0 / tf.sqrt(lam), tf.int32) + 1
+            iternum = math.floor(1.0 / math.sqrt(lam)) + 1
         super().__init__(lam, kernel, dtype)
         self._nu = nu
         self._iternum = iternum
+
+    def __repr__(self):
+        return (
+            f"{type(self).__name__}("
+            + f"lam={self._lam}, "
+            + f"iternum={self._iternum}, "
+            + f"kernel={self._kernel}, "
+            + f"nu={self._nu}, "
+            + f"dtype={self._dtype}"
+            + ")"
+        )
 
     def fit(self, samples, kernel_hyperparams=None):
         if kernel_hyperparams is None:
@@ -36,48 +45,55 @@ class NuMethod(Base):
         self._kernel_hyperparams = kernel_hyperparams
         self._samples = samples
 
-        M = tf.shape(samples)[-2]
-        d = tf.shape(samples)[-1]
+        M = samples.shape[-2]
+        d = samples.shape[-1]
 
-        K_op, K_div = self._kernel.kernel_operator(samples, samples,
-                kernel_hyperparams=kernel_hyperparams)
+        K_op, K_div = self._kernel.kernel_operator(samples, samples, kernel_hyperparams=kernel_hyperparams)
 
         # H_dh: [Md, 1]
-        H_dh = tf.reshape(tf.reduce_mean(K_div, axis=-2), [M * d, 1])
+        H_dh = torch.mean(K_div, dim=-2).reshape([M * d, 1])
 
         def get_next(t, a, pa, c, pc):
             # nc <- c <- pc
-            ft = tf.cast(t, self._dtype)
+            ft = t
             nu = self._nu
-            u = (ft - 1.) * (2. * ft - 3.) * (2. * ft + 2. * nu - 1.) \
-                    / ((ft + 2. * nu - 1.) * (2. * ft + 4. * nu - 1.) * (2. * ft + 2. * nu - 3.))
-            w = 4. * (2. * ft + 2. * nu - 1.) * (ft + nu - 1.) / ((ft + 2. * nu - 1.) * (2. * ft + 4. * nu - 1.))
-            nc = (1. + u) * c - w * (a * H_dh + K_op.apply(c)) / tf.cast(M, self._dtype) - u * pc
-            na = (1. + u) * a - u * pa - w
-            return (t + 1, na, a, nc, c)
+            u = (
+                (ft - 1.0)
+                * (2.0 * ft - 3.0)
+                * (2.0 * ft + 2.0 * nu - 1.0)
+                / ((ft + 2.0 * nu - 1.0) * (2.0 * ft + 4.0 * nu - 1.0) * (2.0 * ft + 2.0 * nu - 3.0))
+            )
+            w = (
+                4.0
+                * (2.0 * ft + 2.0 * nu - 1.0)
+                * (ft + nu - 1.0)
+                / ((ft + 2.0 * nu - 1.0) * (2.0 * ft + 4.0 * nu - 1.0))
+            )
+            nc = (1.0 + u) * c - w * (a * H_dh + K_op.apply(c)) / M - u * pc
+            na = (1.0 + u) * a - u * pa - w
+            return na, a, nc, c
 
-        a1 = -(4. * self._nu + 2) / (4. * self._nu + 1)
-        ret = tf.while_loop(
-            lambda t, a, pa, c, pc: t <= tf.cast(self._iternum, tf.int32),
-            get_next,
-            loop_vars=[2, a1, 0., tf.zeros_like(H_dh), tf.zeros_like(H_dh)]
-        )
+        a = -(4.0 * self._nu + 2) / (4.0 * self._nu + 1)
+        pa = 0.0
+        c = torch.zeros_like(H_dh)
+        pc = torch.zeros_like(H_dh)
 
-        self._coeff = (ret[1], ret[3])
+        for t in range(2, self._iternum + 1):
+            a, pa, c, pc = get_next(t, a, pa, c, pc)
+
+        self._coeff = (a, c)
 
     def _compute_energy(self, x):
-        Kxq, div_xq = self._kernel.kernel_energy(x, self._samples,
-                kernel_hyperparams=self._kernel_hyperparams)
-        Kxq = tf.reshape(Kxq, [tf.shape(x)[-2], -1])
-        div_xq = tf.reduce_mean(div_xq, axis=-1) * self._coeff[0]
-        energy = tf.reshape(tf.matmul(Kxq, self._coeff[1]), [-1]) + div_xq
+        Kxq, div_xq = self._kernel.kernel_energy(x, self._samples, kernel_hyperparams=self._kernel_hyperparams)
+        Kxq = Kxq.reshape([x.shape[-2], -1])
+        div_xq = torch.mean(div_xq, dim=-1) * self._coeff[0]
+        energy = torch.matmul(Kxq, self._coeff[1]).reshape([-1]) + div_xq
         return energy
 
     def compute_gradients(self, x):
-        d = tf.shape(x)[-1]
-        Kxq_op, div_xq = self._kernel.kernel_operator(x, self._samples,
-                kernel_hyperparams=self._kernel_hyperparams)
-        div_xq = tf.reduce_mean(div_xq, axis=-2) * self._coeff[0]
+        d = x.shape[-1]
+        Kxq_op, div_xq = self._kernel.kernel_operator(x, self._samples, kernel_hyperparams=self._kernel_hyperparams)
+        div_xq = torch.mean(div_xq, dim=-2) * self._coeff[0]
         grads = Kxq_op.apply(self._coeff[1])
-        grads = tf.reshape(grads, [-1, d]) + div_xq
+        grads = grads.reshape([-1, d]) + div_xq
         return grads

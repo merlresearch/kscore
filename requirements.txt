@@ -1,0 +1,9 @@
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+cython
+numpy
+scikit-learn
+scipy
+torch>=1.8.0

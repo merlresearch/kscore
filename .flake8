@@ -1,0 +1,20 @@
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+[flake8]
+# E203 - space around ":" (sometimes introduced by black)
+# E266 - multiple "#" leading comment
+# W503 - line break before binary operator
+ignore = E203, E266, W503
+max-line-length = 119
+max-complexity = 18
+select = B,C,E,F,W,T4,B9
+exclude =
+    .git
+    __pycache__
+    .pytest_cache
+    venv
+    *.egg-info
+    *.eggs
+    build

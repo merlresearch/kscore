@@ -1,0 +1,10 @@
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+[build-system]
+requires = [
+    "setuptools", 
+    "wheel", 
+    "Cython>=0.29.0", 
+    "oldest-supported-numpy",
+]

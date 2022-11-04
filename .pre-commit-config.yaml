@@ -1,0 +1,43 @@
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.2.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: detect-aws-credentials
+        args: ["--allow-missing-credentials"]
+      - id: detect-private-key
+
+# To stop flake8 error from causing a failure, use --exit-zero. By default, pre-commit will not show the warnings,
+# so use verbose: true to see them.
+  - repo: https://github.com/pycqa/flake8
+    rev: 4.0.1
+    hooks:
+      - id: flake8
+        verbose: true
+        args:
+          - --exit-zero
+        additional_dependencies:
+          - flake8-bugbear
+          - flake8-docstrings
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.10.1
+    hooks:
+      - id: isort
+        name: isort (python)
+      - id: isort
+        name: isort (cython)
+        types: [cython]
+
+  - repo: https://github.com/psf/black
+    rev: 22.3.0
+    hooks:
+      - id: black
+        args:
+          - --line-length=119

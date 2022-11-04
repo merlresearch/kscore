@@ -1,0 +1,14 @@
+# Copyright (c) 2022 Mitsubishi Electric Research Labs (MERL)
+#
+# SPDX-License-Identifier: BSD-3-Clause
+
+black
+colorama
+flake8
+flake8-bugbear
+ipython
+isort
+pre-commit
+pytest
+pytest-cov
+vulture
